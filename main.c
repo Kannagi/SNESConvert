@@ -11,32 +11,45 @@
 #undef main
 #endif
 
-void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mode);
+void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mode,char *adressepal);
 
 int main(int argc, char** argv)
 {
     SDL_Init(SDL_INIT_VIDEO);
 
     SDL_Surface *image,*copy;
-    int n = 1,force = 0,noalpha = 0,i,mode = 0;
-    char adresse[1000];
+    int n = 1,force = 0,noalpha = 0,i,mode = 0,ok = 0;
+    char adresse[500],adressepal[500];
+
+    strcpy(adressepal,"palette.png");
     adresse[0] = 0;
 
     for(i = 1; i < argc;i++)
     {
         if(argv[i][0] == '-')
         {
-            if(strcmp(argv[i],"-4") == 0) force = 4;
-            if(strcmp(argv[i],"-16") == 0) force = 16;
+            if(strcmp(argv[i],"-2bpp") == 0) force = 4;
+            if(strcmp(argv[i],"-4bpp") == 0) force = 16;
+            if(strcmp(argv[i],"-8bpp") == 0) force = 256;
             if(strcmp(argv[i],"-noalpha") == 0) noalpha = 1;
             if(strcmp(argv[i],"-palette") == 0) mode = 1;
             if(strcmp(argv[i],"-paletteall") == 0) mode = 3;
             if(strcmp(argv[i],"-mode7") == 0) mode = 2;
-            if(strcmp(argv[i],"-loadpalette") == 0) mode = 4;
+
+            ok = 0;
+
+            if(strcmp(argv[i],"-loadpalette") == 0)
+            {
+                mode = 4;
+                ok = 1;
+            }
+
 
         }else
         {
-            strcpy(adresse,argv[i]);
+            if(ok == 0) strcpy(adresse,argv[i]);
+            if(ok == 1) strcpy(adressepal,argv[i]);
+            ok = 0;
         }
     }
 
@@ -58,7 +71,7 @@ int main(int argc, char** argv)
     copy = SDL_CreateRGBSurface(0,image->w,image->h,24,0,0,0,0);
     SDL_BlitSurface(image,NULL,copy,NULL);
 
-    snes_convert(copy,adresse,force,noalpha,mode);
+    snes_convert(copy,adresse,force,noalpha,mode,adressepal);
 
     SDL_FreeSurface(copy);
     SDL_FreeSurface(image);
@@ -68,20 +81,16 @@ int main(int argc, char** argv)
 
 }
 
-void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mode)
+int load_palette(SDL_Surface *image,unsigned char *palette)
 {
-    int i,l,taille,npal = 0;
-    unsigned char palette[768];
+    int i,l;
+    unsigned char *pixel = image->pixels;
+    int taille = image->w*image->h*image->format->BytesPerPixel;
+    int n = 0,ok;
+    //printf("%d %d = %d octet\n",image->w,image->h,taille);
+
     for(i = 0;i < 768;i++)
         palette[i] = 0;
-
-
-    unsigned char *pixel = image->pixels;
-
-    taille = image->w*image->h*image->format->BytesPerPixel;
-
-    //printf("%d %d = %d octet\n",image->w,image->h,taille);
-    int n = 0,ok;
 
     for(i = 0;i < taille;i += image->format->BytesPerPixel)
     {
@@ -108,105 +117,101 @@ void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mod
         }
     }
 
-    //-------------------------------
-    SDL_Surface *image2,*copy;
-    if(mode == 4)
+    return n;
+}
+
+void load_paletteext(unsigned char *palette,char *adressepal)
+{
+    int i;
+    SDL_Surface *image,*copy;
+    image = IMG_Load(adressepal);
+
+    if(image == NULL)
     {
+        printf("Image is not valide\n");
+        return;
+    }
+    for(i = 0;i < 768;i++)
+        palette[i] = 0;
 
-        image2 = IMG_Load("palette.png");
-        if(image2 == NULL)
-        {
-            printf("Image is not valide\n");
-            return;
-        }
-        for(i = 0;i < 768;i++)
-            palette[i] = 0;
+    copy = SDL_CreateRGBSurface(0,image->w,image->h,24,0,0,0,0);
+    SDL_BlitSurface(image,NULL,copy,NULL);
+    int n = 0;
+    unsigned char *pixel = copy->pixels;
 
-        copy = SDL_CreateRGBSurface(0,image2->w,image2->h,24,0,0,0,0);
-        SDL_BlitSurface(image2,NULL,copy,NULL);
-        n = 0;
-        unsigned char *pixel2 = copy->pixels;
-
-        for(i = 0;i < image2->w*copy->format->BytesPerPixel;i += copy->format->BytesPerPixel)
-        {
-            palette[i+0] = pixel2[i+0];
-            palette[i+1] = pixel2[i+1];
-            palette[i+2] = pixel2[i+2];
-            n+=3;
-        }
-
-        mode = 0;
+    for(i = 0;i < image->w*copy->format->BytesPerPixel;i += copy->format->BytesPerPixel)
+    {
+        palette[i+0] = pixel[i+0];
+        palette[i+1] = pixel[i+1];
+        palette[i+2] = pixel[i+2];
+        n+=3;
     }
 
-    //-------------------------------
 
-    printf("color : %d\n",n/3);
-    npal = n/3;
-    if(force == 4) npal = 4;
-    if(force == 16) npal = 16;
+}
 
-    int x,y,size = 0;
+void tri_palette(SDL_Surface *image,int casex,int casey,unsigned char *pixel,unsigned char *palette,int *tiles)
+{
+    int x,y,i,l;
+    int n = 0;
+    int r,v,b;
+
+
+    for(y = casey;y < casey+8;y++)
+    {
+        for(x = casex;x < casex+8;x++)
+        {
+            i = (y*image->w*image->format->BytesPerPixel) + x*image->format->BytesPerPixel;
+            r = pixel[i+0];
+            v = pixel[i+1];
+            b = pixel[i+2];
+
+            for(l = 0;l < 768;l+=3)
+            {
+                if(palette[l+0] == r && palette[l+1] == v && palette[l+2] == b)
+                    break;
+            }
+
+
+            tiles[n] = l/3;
+
+            n++;
+        }
+
+        //printf("\n-------------------------------------------\n");
+    }
+}
+
+int write_rom(FILE *file,SDL_Surface *image,unsigned char *pixel,unsigned char *palette,int npal,int noalpha,int type)
+{
     int casex,casey;
+    int tiles[64];
+    int octet4[8];
+    int i,l;
+    int x,y,size = 0;
+    char chaine[500];
+    char casm1[500];
+    char casm2[500];
+    char casm3[500];
+    char casm4[500];
 
     casex = 0;
     casey = 0;
-
-    char casm1[10000];
-    char casm2[1500];
-    char chaine[1000],schaine[1000];
-    unsigned char couleur;
-
-    i = 0;
-    while(adresse[i] != 0 && adresse[i] != '.' )
-    {
-        schaine[i] = adresse[i];
-        i++;
-    }
-    schaine[i] = 0;
-
-    int tiles[64],r,v,b;
-    int octet4[4];
-
-    FILE *file;
-    sprintf(chaine,"%s.asm",schaine);
-    file = fopen(chaine,"w");
 
     sprintf(chaine,"\n");
     fputs(chaine,file);
 
 
-    while(mode != 1 && mode < 3)
+    while(1)
     {
-        n = 0;
-        for(y = casey;y < casey+8;y++)
+        tri_palette(image,casex,casey,pixel,palette,tiles);
+
+        if(type == 0) //2,4,8pbb
         {
-            for(x = casex;x < casex+8;x++)
-            {
-                i = (y*image->w*image->format->BytesPerPixel) + x*image->format->BytesPerPixel;
-                r = pixel[i+0];
-                v = pixel[i+1];
-                b = pixel[i+2];
-                //printf("i %d x:%d y:%d %d %d %d / ",i/4,x,y,r,v,b);
-
-                for(l = 0;l < 768;l+=3)
-                {
-                    if(palette[l+0] == r && palette[l+1] == v && palette[l+2] == b)
-                        break;
-                }
-
-
-                tiles[n] = l/3;
-
-                n++;
-            }
-
-            //printf("\n-------------------------------------------\n");
-        }
-
-        if(mode == 0)
-        {
-            sprintf(casm1,"    .db");
-            sprintf(casm2,"    .db");
+            sprintf(casm1,"    .db ");
+            sprintf(casm2,"    .db ");
+            sprintf(casm3,"    .db ");
+            sprintf(casm4,"    .db ");
 
             for(y = 0;y <8;y++)
             {
@@ -215,26 +220,45 @@ void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mod
                 octet4[2] = 0;
                 octet4[3] = 0;
 
+                octet4[4] = 0;
+                octet4[5] = 0;
+                octet4[6] = 0;
+                octet4[7] = 0;
+
                 for(x = 0;x < 8;x++)
                 {
                     i = tiles[x + (y*8)] + noalpha;
 
-                    if(i > 15) i = 15;
-                    octet4[0] += ( (i>>0) & 0x01 ) << -(x - 7);
-                    octet4[1] += ( (i>>1) & 0x01 ) << -(x - 7);
-                    octet4[2] += ( (i>>2) & 0x01 ) << -(x - 7);
-                    octet4[3] += ( (i>>3) & 0x01 ) << -(x - 7);
+                    if(i > npal-1) i = npal-1;
+                    octet4[0] += ( (i>>0) & 0x01 ) << (7 - x);
+                    octet4[1] += ( (i>>1) & 0x01 ) << (7 - x);
+                    octet4[2] += ( (i>>2) & 0x01 ) << (7 - x);
+                    octet4[3] += ( (i>>3) & 0x01 ) << (7 - x);
+
+                    octet4[4] += ( (i>>4) & 0x01 ) << (7 - x);
+                    octet4[5] += ( (i>>5) & 0x01 ) << (7 - x);
+                    octet4[6] += ( (i>>6) & 0x01 ) << (7 - x);
+                    octet4[7] += ( (i>>7) & 0x01 ) << (7 - x);
                 }
 
 
 
-                sprintf(chaine," $%.2x, $%.2x,",octet4[0],octet4[1]);
+                sprintf(chaine,"$%.2x,$%.2x,",octet4[0],octet4[1]);
                 strcat(casm1,chaine);
 
                 if(npal > 4)
                 {
-                    sprintf(chaine," $%.2x, $%.2x,",octet4[2],octet4[3]);
+                    sprintf(chaine,"$%.2x,$%.2x,",octet4[2],octet4[3]);
                     strcat(casm2,chaine);
+                }
+
+                if(npal > 16)
+                {
+                    sprintf(chaine,"$%.2x,$%.2x,",octet4[4],octet4[5]);
+                    strcat(casm3,chaine);
+
+                    sprintf(chaine,"$%.2x,$%.2x,",octet4[6],octet4[7]);
+                    strcat(casm4,chaine);
                 }
             }
 
@@ -253,7 +277,21 @@ void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mod
                 size += 16;
             }
 
-        }else
+            if(npal > 16)
+            {
+                i = strlen(casm3);
+                casm3[i-1] = 0;
+                fputs(casm3,file);
+                fputs("\n",file);
+
+                i = strlen(casm4);
+                casm4[i-1] = 0;
+                fputs(casm4,file);
+                fputs("\n",file);
+                size += 32;
+            }
+
+        }else //8pbb mode 7
         {
             sprintf(casm1,"    .db");
             for(y = 0;y <8;y++)
@@ -289,10 +327,13 @@ void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mod
     //ecriture palette
     fputs("\n",file);
     fputs("\n",file);
+    return size;
+}
 
-    //------------------------
-    l = 0;
-    i = 0;
+void output_filename(char *adresse,char *schaine)
+{
+    int l = 0;
+    int i = 0;
     while(adresse[i] != 0 && adresse[i] != '.' )
     {
         schaine[l] = adresse[i];
@@ -302,11 +343,20 @@ void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mod
         i++;
     }
     schaine[l] = 0;
-    //------------------------
+}
+
+int write_pal(FILE *file,SDL_Surface *image,char *schaine,unsigned char *palette,unsigned char *pixel,int color,int mode,int taille)
+{
+    int i,n;
+    int psize = 0;
+    char chaine[100];
+    unsigned char couleur;
+    int octet4[4];
 
     sprintf(chaine,"pallette_%s:\n",schaine);
     fputs(chaine,file);
-    sprintf(casm1,"    .db");
+    sprintf(chaine,"    .db  ");
+    fputs(chaine,file);
 
     if(mode == 3)
     {
@@ -319,13 +369,15 @@ void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mod
             n +=3;
             if(n > 768) break;
         }
-        npal = n/3;
+        color = n/3;
     }
 
-    int psize = 0;
-    for(i = 0;i < npal;i++)
+
+    for(i = 0;i < color;i++)
     {
         n = i*3;
+
+        if(i != 0) fputs(",",file);
 
         couleur = palette[n+2]/8;
         octet4[0] = couleur;
@@ -337,30 +389,80 @@ void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mod
         couleur = palette[n+0]/8;
         octet4[1] += couleur << 2;
 
-        sprintf(chaine," $%.2x, $%.2x,",octet4[0],octet4[1]);
-
+        sprintf(chaine,"$%.2x,$%.2x",octet4[0],octet4[1]);
+        fputs(chaine,file);
         //printf("%s %d %d %d\n",chaine ,palette[n+0],palette[n+1],palette[n+2]);
-        strcat(casm1,chaine);
         psize += 2;
     }
 
-    i = strlen(casm1);
-    casm1[i-1] = 0;
-    fputs(casm1,file);
+    return psize;
+}
+
+void write_end(FILE *file,int psize,int size)
+{
+    char chaine[200];
+
     fputs("\n",file);
     fputs("\n",file);
     fputs("\n",file);
 
-    sprintf(chaine,";palette size octet : %d ,hexa $%4x",psize,psize);
+    sprintf(chaine,";palette size octet : %d ,hexa $%.4x",psize,psize);
     fputs(chaine,file);
     fputs("\n",file);
-    fputs("\n",file);
-    sprintf(chaine,";size octet : %d ,hexa $%4x",size,size);
+    sprintf(chaine,";size octet : %d ,hexa $%.4x",size,size);
     fputs(chaine,file);
 
     fputs("\n",file);
 
 
     fclose(file);
+}
+
+
+void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mode,char *adressepal)
+{
+    FILE *file;
+    int i,l,taille,color = 0,type = 0;
+    int x,y,size = 0,psize = 0;
+    char chaine[200],schaine[200];
+
+    unsigned char palette[768];
+    for(i = 0;i < 768;i++)
+        palette[i] = 0;
+
+    if(mode == 2) type = 1;
+
+    unsigned char *pixel = image->pixels;
+
+    taille = image->w*image->h*image->format->BytesPerPixel;
+
+    color = load_palette(image,palette)/3;
+
+    //-------------------------------
+    if(mode == 4)
+    {
+        load_paletteext(palette,adressepal);
+        mode = 0;
+    }
+
+    //-------------------------------
+
+    printf("color : %d\n",color);
+    if(force == 4) color = 4;
+    if(force == 16) color = 16;
+    if(force == 256) color = 256;
+
+    //-------------------------------
+    output_filename(adresse,schaine);
+
+    sprintf(chaine,"%s.asm",schaine);
+    file = fopen(chaine,"w");
+
+    if(mode == 0 || mode == 2 || mode == 4)
+        size = write_rom(file,image,pixel,palette,color,noalpha,type);
+
+    psize = write_pal(file,image,schaine,palette,pixel,color,mode,taille);
+
+    write_end(file,psize,size);
 }
 
