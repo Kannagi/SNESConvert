@@ -11,14 +11,14 @@
 #undef main
 #endif
 
-void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mode,char *adressepal);
+void pce_convert(SDL_Surface *image,char *adresse,int noalpha,int mode,char *adressepal,int bin,int type);
 
 int main(int argc, char** argv)
 {
     SDL_Init(SDL_INIT_VIDEO);
 
     SDL_Surface *image,*copy;
-    int n = 1,force = 0,noalpha = 0,i,mode = 0,ok = 0;
+    int n = 1,noalpha = 0,i,mode = 0,ok = 0,bin = 0,type = 0;
     char adresse[500],adressepal[500];
 
     strcpy(adressepal,"palette.png");
@@ -28,13 +28,12 @@ int main(int argc, char** argv)
     {
         if(argv[i][0] == '-')
         {
-            if(strcmp(argv[i],"-2bpp") == 0) force = 4;
-            if(strcmp(argv[i],"-4bpp") == 0) force = 16;
-            if(strcmp(argv[i],"-8bpp") == 0) force = 256;
             if(strcmp(argv[i],"-noalpha") == 0) noalpha = 1;
             if(strcmp(argv[i],"-palette") == 0) mode = 1;
             if(strcmp(argv[i],"-paletteall") == 0) mode = 3;
-            if(strcmp(argv[i],"-mode7") == 0) mode = 2;
+            if(strcmp(argv[i],"-bin") == 0) bin = 1;
+            if(strcmp(argv[i],"-bg") == 0) type = 1;
+            if(strcmp(argv[i],"-spr") == 0) type = 0;
 
             ok = 0;
 
@@ -55,9 +54,8 @@ int main(int argc, char** argv)
 
     if(adresse[0] == 0)
     {
-        printf("Enter a picture format .png,pcx,bmp, or jpg\n");
-        printf("Force -4 or -16 for choose palette \n");
-        printf("Exemple :\nsnesconvert -4 myimage or snesconvert myimage (snesconvert choose auto -4 or -16)\n");
+        printf("Enter a picture format .png,pcx,bmp\n");
+        printf("Exemple :\npceconvert -4 myimage \n");
         return;
     }
 
@@ -71,7 +69,7 @@ int main(int argc, char** argv)
     copy = SDL_CreateRGBSurface(0,image->w,image->h,24,0,0,0,0);
     SDL_BlitSurface(image,NULL,copy,NULL);
 
-    snes_convert(copy,adresse,force,noalpha,mode,adressepal);
+    pce_convert(copy,adresse,noalpha,mode,adressepal,bin,type);
 
     SDL_FreeSurface(copy);
     SDL_FreeSurface(image);
@@ -86,11 +84,15 @@ int load_palette(SDL_Surface *image,unsigned char *palette)
     int i,l;
     unsigned char *pixel = image->pixels;
     int taille = image->w*image->h*image->format->BytesPerPixel;
-    int n = 0,ok;
-    //printf("%d %d = %d octet\n",image->w,image->h,taille);
+    int n = 0,ok,first = 0;
 
-    for(i = 0;i < 768;i++)
-        palette[i] = 0;
+    for(i = 0;i < 768;i+=3)
+    {
+    	palette[i+0] = 1;
+    	palette[i+1] = 2;
+    	palette[i+2] = 0;
+    }
+
 
     for(i = 0;i < taille;i += image->format->BytesPerPixel)
     {
@@ -120,7 +122,7 @@ int load_palette(SDL_Surface *image,unsigned char *palette)
     return n;
 }
 
-void load_paletteext(unsigned char *palette,char *adressepal)
+int load_paletteext(unsigned char *palette,char *adressepal)
 {
     int i;
     SDL_Surface *image,*copy;
@@ -131,8 +133,12 @@ void load_paletteext(unsigned char *palette,char *adressepal)
         printf("Image is not valide\n");
         return;
     }
-    for(i = 0;i < 768;i++)
-        palette[i] = 0;
+    for(i = 0;i < 768;i+=3)
+    {
+    	palette[i+0] = 1;
+    	palette[i+1] = 2;
+    	palette[i+2] = 0;
+    }
 
     copy = SDL_CreateRGBSurface(0,image->w,image->h,24,0,0,0,0);
     SDL_BlitSurface(image,NULL,copy,NULL);
@@ -146,7 +152,11 @@ void load_paletteext(unsigned char *palette,char *adressepal)
         palette[i+2] = pixel[i+2];
         n+=3;
     }
+	SDL_FreeSurface(copy);
+	SDL_FreeSurface(image);
 
+
+	return n;
 
 }
 
@@ -172,7 +182,6 @@ void tri_palette(SDL_Surface *image,int casex,int casey,unsigned char *pixel,uns
                     break;
             }
 
-
             tiles[n] = l/3;
 
             n++;
@@ -182,151 +191,146 @@ void tri_palette(SDL_Surface *image,int casex,int casey,unsigned char *pixel,uns
     }
 }
 
-int write_rom(FILE *file,SDL_Surface *image,unsigned char *pixel,unsigned char *palette,int npal,int noalpha,int type)
+int write_rom(FILE *file,SDL_Surface *image,unsigned char *pixel,unsigned char *palette,int noalpha,int binaire,int type)
 {
     int casex,casey;
     int tiles[64];
-    int octet4[8];
     int i,l;
     int x,y,size = 0;
     char chaine[500];
-    char casm1[500];
-    char casm2[500];
-    char casm3[500];
-    char casm4[500];
+    int bin[128];
+	int bx,by,bn;
+
+	int nl = 4,ns = 128,casez = 16;
+
+	if(type == 1)
+	{
+		nl = 1;
+		ns = 32;
+		casez = 8;
+	}
 
     casex = 0;
     casey = 0;
 
+
     sprintf(chaine,"\n");
-    fputs(chaine,file);
+    if(binaire == 0) fputs(chaine,file);
+
 
 
     while(1)
     {
-        tri_palette(image,casex,casey,pixel,palette,tiles);
-
-        if(type == 0) //2,4,8pbb
-        {
-            sprintf(casm1,"    .db ");
-            sprintf(casm2,"    .db ");
-            sprintf(casm3,"    .db ");
-            sprintf(casm4,"    .db ");
-
-            for(y = 0;y <8;y++)
-            {
-                octet4[0] = 0;
-                octet4[1] = 0;
-                octet4[2] = 0;
-                octet4[3] = 0;
-
-                octet4[4] = 0;
-                octet4[5] = 0;
-                octet4[6] = 0;
-                octet4[7] = 0;
-
-                for(x = 0;x < 8;x++)
-                {
-                    i = tiles[x + (y*8)] + noalpha;
-
-                    if(i > npal-1) i = npal-1;
-                    octet4[0] += ( (i>>0) & 0x01 ) << (7 - x);
-                    octet4[1] += ( (i>>1) & 0x01 ) << (7 - x);
-                    octet4[2] += ( (i>>2) & 0x01 ) << (7 - x);
-                    octet4[3] += ( (i>>3) & 0x01 ) << (7 - x);
-
-                    octet4[4] += ( (i>>4) & 0x01 ) << (7 - x);
-                    octet4[5] += ( (i>>5) & 0x01 ) << (7 - x);
-                    octet4[6] += ( (i>>6) & 0x01 ) << (7 - x);
-                    octet4[7] += ( (i>>7) & 0x01 ) << (7 - x);
-                }
 
 
 
-                sprintf(chaine,"$%.2x,$%.2x,",octet4[0],octet4[1]);
-                strcat(casm1,chaine);
-
-                if(npal > 4)
-                {
-                    sprintf(chaine,"$%.2x,$%.2x,",octet4[2],octet4[3]);
-                    strcat(casm2,chaine);
-                }
-
-                if(npal > 16)
-                {
-                    sprintf(chaine,"$%.2x,$%.2x,",octet4[4],octet4[5]);
-                    strcat(casm3,chaine);
-
-                    sprintf(chaine,"$%.2x,$%.2x,",octet4[6],octet4[7]);
-                    strcat(casm4,chaine);
-                }
-            }
-
-            i = strlen(casm1);
-            casm1[i-1] = 0;
-            fputs(casm1,file);
-            fputs("\n",file);
-            size += 16;
-
-            if(npal > 4)
-            {
-                i = strlen(casm2);
-                casm2[i-1] = 0;
-                fputs(casm2,file);
-                fputs("\n",file);
-                size += 16;
-            }
-
-            if(npal > 16)
-            {
-                i = strlen(casm3);
-                casm3[i-1] = 0;
-                fputs(casm3,file);
-                fputs("\n",file);
-
-                i = strlen(casm4);
-                casm4[i-1] = 0;
-                fputs(casm4,file);
-                fputs("\n",file);
-                size += 32;
-            }
-
-        }else //8pbb mode 7
-        {
-            sprintf(casm1,"    .db");
-            for(y = 0;y <8;y++)
-            {
-                for(x = 0;x < 8;x++)
-                {
-                    i = tiles[x + (y*8)] + noalpha;
-
-                    sprintf(chaine," $%.2x,",i);
-                    strcat(casm1,chaine);
-                }
-            }
-
-            i = strlen(casm1);
-            casm1[i-1] = 0;
-            fputs(casm1,file);
-            fputs("\n",file);
-            size += 64;
-
-        }
+        for(i = 0;i < 128;i++)
+			bin[i] = 0;
 
 
-        casex += 8;
-        if(casex+8 >image->w)
+		for(l = 0;l < nl;l++)
+		{
+
+			if(l == 1)
+			{
+				casex+= 8;
+			}
+
+			if(l == 2)
+			{
+				casey += 8;
+			}
+
+			if(l == 3)
+			{
+				casex -= 8;
+			}
+
+			tri_palette(image,casex,casey,pixel,palette,tiles);
+
+			for(y = 0;y < 8;y++)
+			{
+				for(x = 0;x < 8;x++)
+				{
+					i = tiles[x + (y*8)] + noalpha;
+					if(i > 15) i = 15;
+
+					bx = x/8;
+					by = y*2;
+					bn = bx+by;
+
+
+					if(type == 0)
+					{
+
+						if(l == 0) bn += 0x01;
+						if(l == 2) bn += 0x10;
+						if(l == 3) bn += 0x11;
+
+						bin[bn+0x00] += ( (i&0x01)>>0 ) << (7 - x);
+						bin[bn+0x20] += ( (i&0x02)>>1 ) << (7 - x);
+						bin[bn+0x40] += ( (i&0x04)>>2 ) << (7 - x);
+						bin[bn+0x60] += ( (i&0x08)>>3 ) << (7 - x);
+					}else
+					{
+						bin[bn+0x00] += ( (i&0x01)>>0 ) << (7 - x);
+						bin[bn+0x01] += ( (i&0x02)>>1 ) << (7 - x);
+						bin[bn+0x10] += ( (i&0x04)>>2 ) << (7 - x);
+						bin[bn+0x11] += ( (i&0x08)>>3 ) << (7 - x);
+					}
+
+					//if(i > npal-1) i = npal-1;
+
+				}
+
+			}
+
+			if(l == 3)
+			{
+				casey -= 8;
+			}
+
+		}
+
+		for(i = 0;i < ns;i++)
+		{
+			if(binaire == 0)
+			{
+				if(i%16 == 0) fputs("    .db ",file);
+
+				if(i%16 != 15) sprintf(chaine,"$%.2x,",bin[i]);
+				else sprintf(chaine,"$%.2x",bin[i]);
+
+				fputs(chaine,file);
+
+				if(i%16 == 15) fputs("\n",file);
+			}else
+			{
+				fputc(bin[i],file);
+			}
+
+		}
+
+
+
+
+		size += ns;
+
+        casex += casez;
+        if(casex+casez >image->w)
         {
             casex = 0;
-            casey += 8;
+            casey += casez;
         }
 
-        if(casey+8 >image->h) break;
+        if(casey+casez >image->h) break;
+
     }
 
     //ecriture palette
-    fputs("\n",file);
-    fputs("\n",file);
+    if(binaire == 0) fputs("\n\n",file);
+    else fclose(file);
+
     return size;
 }
 
@@ -345,18 +349,22 @@ void output_filename(char *adresse,char *schaine)
     schaine[l] = 0;
 }
 
-int write_pal(FILE *file,SDL_Surface *image,char *schaine,unsigned char *palette,unsigned char *pixel,int color,int mode,int taille)
+int write_pal(FILE *file,SDL_Surface *image,char *schaine,unsigned char *palette,unsigned char *pixel,int color,int mode,int taille,int bin)
 {
     int i,n;
     int psize = 0;
     char chaine[100];
-    unsigned char couleur;
+    int couleur;
     int octet4[4];
 
-    sprintf(chaine,"pallette_%s:\n",schaine);
-    fputs(chaine,file);
-    sprintf(chaine,"    .db  ");
-    fputs(chaine,file);
+	if(bin == 0)
+	{
+		sprintf(chaine,"pallette_%s:\n",schaine);
+		fputs(chaine,file);
+		sprintf(chaine,"    .dw  ");
+		fputs(chaine,file);
+	}
+
 
     if(mode == 3)
     {
@@ -377,23 +385,38 @@ int write_pal(FILE *file,SDL_Surface *image,char *schaine,unsigned char *palette
     {
         n = i*3;
 
-        if(i != 0) fputs(",",file);
+        octet4[0] = palette[n+0]>>5;
+        octet4[1] = palette[n+1]>>5;
+		octet4[2] = palette[n+2]>>5;
 
-        couleur = palette[n+2]/8;
-        octet4[0] = couleur;
+		couleur = (octet4[1]<<6) + (octet4[2]<<3) +octet4[0];
 
-        couleur = palette[n+1]/8;
-        octet4[0] += ( 0x07 & couleur) << 5;
-        octet4[1] =  (0x18 & couleur) >> 3;
 
-        couleur = palette[n+0]/8;
-        octet4[1] += couleur << 2;
 
-        sprintf(chaine,"$%.2x,$%.2x",octet4[0],octet4[1]);
-        fputs(chaine,file);
-        //printf("%s %d %d %d\n",chaine ,palette[n+0],palette[n+1],palette[n+2]);
+
+
+
+        if(bin == 0)
+		{
+			sprintf(chaine,"$%.4x",couleur);
+			fputs(chaine,file);
+
+			if(i != color-1) fputs(",",file);
+		}else
+		{
+			fputc(couleur&0xFF,file);
+			fputc( (couleur&0xFF)>>8 ,file);
+		}
+
+
+
+        //printf("%s %d %d %d , %.2x %.2x %.2x\n",chaine ,palette[n+0],palette[n+1],palette[n+2],octet4[0],octet4[1],octet4[2]);
+
         psize += 2;
     }
+
+
+    if(bin == 1) fclose(file);
 
     return psize;
 }
@@ -419,10 +442,10 @@ void write_end(FILE *file,int psize,int size)
 }
 
 
-void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mode,char *adressepal)
+void pce_convert(SDL_Surface *image,char *adresse,int noalpha,int mode,char *adressepal,int bin,int type)
 {
     FILE *file;
-    int i,l,taille,color = 0,type = 0;
+    int i,l,taille,color = 0;
     int x,y,size = 0,psize = 0;
     char chaine[200],schaine[200];
 
@@ -430,7 +453,6 @@ void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mod
     for(i = 0;i < 768;i++)
         palette[i] = 0;
 
-    if(mode == 2) type = 1;
 
     unsigned char *pixel = image->pixels;
 
@@ -441,28 +463,39 @@ void snes_convert(SDL_Surface *image,char *adresse,int force,int noalpha,int mod
     //-------------------------------
     if(mode == 4)
     {
-        load_paletteext(palette,adressepal);
+        color = load_paletteext(palette,adressepal)/3;
         mode = 0;
     }
 
     //-------------------------------
 
     printf("color : %d\n",color);
-    if(force == 4) color = 4;
-    if(force == 16) color = 16;
-    if(force == 256) color = 256;
 
     //-------------------------------
     output_filename(adresse,schaine);
 
-    sprintf(chaine,"%s.asm",schaine);
-    file = fopen(chaine,"w");
+    if(bin == 0)
+    {
+    	sprintf(chaine,"%s.asm",schaine);
+    	file = fopen(chaine,"w");
+    }else
+    {
+    	sprintf(chaine,"%s.spr",schaine);
+    	file = fopen(chaine,"wb");
+    }
 
-    if(mode == 0 || mode == 2 || mode == 4)
-        size = write_rom(file,image,pixel,palette,color,noalpha,type);
+    if(mode == 0 || mode == 4)
+        size = write_rom(file,image,pixel,palette,noalpha,bin,type);
 
-    psize = write_pal(file,image,schaine,palette,pixel,color,mode,taille);
 
-    write_end(file,psize,size);
+	if(bin == 1)
+    {
+    	sprintf(chaine,"%s.pal",schaine);
+    	file = fopen(chaine,"wb");
+    }
+
+    psize = write_pal(file,image,schaine,palette,pixel,color,mode,taille,bin);
+
+    if(bin == 0) write_end(file,psize,size);
 }
 
