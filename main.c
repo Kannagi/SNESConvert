@@ -11,11 +11,13 @@
 #undef main
 #endif
 
+
 void snes_convert(SDL_Surface *image,char *address,char *addresspal,int *option,int num);
 
 int main(int argc, char** argv)
 {
     SDL_Init(SDL_INIT_VIDEO);
+
 
     SDL_Surface *image,*copy;
     int n = 1,i,ok = 0;
@@ -130,7 +132,7 @@ int load_palette(SDL_Surface *image,unsigned char *palette,int noalpha)
     unsigned char *pixel = image->pixels;
     int taille = image->w*image->h*image->format->BytesPerPixel;
 	unsigned char r,g,b;
-	int n = 3 - (noalpha*3),black = 0,pal;
+	int n = 3 ,black = 0,pal;
 
 	for(i = 0;i < 0x300;i++)
 		palette[i] = 0;
@@ -588,7 +590,8 @@ void snes_convert(SDL_Surface *image,char *address,char *addresspal,int *option,
 		if(option[4] == 1) sprintf(str,"%s_%d.pal",sstr,num);
 		file = fopen(str,"wb");
 	}
-    psize = write_pal(file,image,sstr,palette,pixel,ncolor,mode,taille,option[3]);
+
+    psize = write_pal(file,image,sstr,palette,pixel,ncolor,mode,taille,!option[3]);
 
     if(option[3] == 1)
 		write_end(file,psize,size);

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6" />
+	<Project>
+		<Option title="SNES convert" />
+		<Option pch_mode="2" />
+		<Option compiler="gcc" />
+		<Build>
+			<Target title="console">
+				<Option output="bin/snesconvert" prefix_auto="1" extension_auto="1" />
+				<Option working_dir="bin/" />
+				<Option object_output="obj/" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Option parameters=" Papi.png -bin" />
+			</Target>
+			<Target title="console win">
+				<Option output="bin/snesconvert.exe" prefix_auto="1" extension_auto="0" />
+				<Option working_dir="bin/" />
+				<Option object_output="obj/" />
+				<Option type="1" />
+				<Option compiler="mingw__compiler" />
+				<Option parameters=" Papi.png -bin" />
+			</Target>
+		</Build>
+		<Compiler>
+			<Add option="-O3" />
+		</Compiler>
+		<Linker>
+			<Add option="-s" />
+			<Add library="SDL" />
+			<Add library="SDL_image" />
+		</Linker>
+		<Unit filename="main.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Extensions>
+			<debugger />
+			<code_completion />
+			<envvars />
+		</Extensions>
+	</Project>
+</CodeBlocks_project_file>
