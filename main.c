@@ -132,7 +132,7 @@ int load_palette(SDL_Surface *image,unsigned char *palette,int noalpha)
     unsigned char *pixel = image->pixels;
     int taille = image->w*image->h*image->format->BytesPerPixel;
 	unsigned char r,g,b;
-	int n = 3 ,black = 0,pal;
+	int n = 3 -(noalpha*3),black = 0,pal;
 
 	for(i = 0;i < 0x300;i++)
 		palette[i] = 0;
